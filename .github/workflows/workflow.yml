@@ -59,12 +59,14 @@ jobs:
       - name: Determine Version
         id: version_output
         run: |
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+            VERSION_INPUT="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION_INPUT" ]; then
             AUTO_VERSION="v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}"
             echo "Auto-generated version: $AUTO_VERSION"
             echo "version=$AUTO_VERSION" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            else
+            echo "version=$VERSION_INPUT" >> $GITHUB_OUTPUT
+            fi
 
       - name: Create Build Summary
         run: |
