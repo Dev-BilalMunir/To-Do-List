@@ -1,0 +1,103 @@
+name: TeamCity-Style CI/CD with Summary
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Select Build Type"
+        required: true
+        type: choice
+        default: "build_and_deploy"
+        options:
+          - build_only
+          - test_only
+          - build_and_deploy
+      environment:
+        description: "Deployment Environment"
+        required: true
+        type: choice
+        default: "staging"
+        options:
+          - staging
+          - production
+      version:
+        description: "Version (leave blank for auto)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry Run (skip actual deployment)"
+        type: boolean
+        default: false
+
+jobs:
+  set_version:
+    name: Set Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_output.outputs.version }}
+    steps:
+      - name: Determine Version
+        id: version_output
+        run: |
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            AUTO_VERSION="v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}"
+            echo "Auto-generated version: $AUTO_VERSION"
+            echo "version=$AUTO_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+
+      - name: Create Build Summary
+        run: |
+          echo "## 📝 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | ${{ github.event.inputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ steps.version_output.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry Run | ${{ github.event.inputs.dry_run }} |" >> $GITHUB_STEP_SUMMARY
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: set_version
+    if: ${{ github.event.inputs.build_type != 'test_only' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: echo "Building version ${{ needs.set_version.outputs.version }}"
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: [set_version, build]
+    if: ${{ github.event.inputs.build_type != 'build_only' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Tests
+        run: echo "Running tests for version ${{ needs.set_version.outputs.version }}"
+
+  approve_production:
+    name: Approval Gate (Production)
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: ${{ github.event.inputs.environment == 'production' && github.event.inputs.build_type == 'build_and_deploy' }}
+    environment:
+      name: production
+    steps:
+      - name: Await Manual Approval
+        run: echo "Waiting for approval before deploying to production..."
+
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    needs: [build, test, approve_production]
+    if: ${{ github.event.inputs.build_type == 'build_and_deploy' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        run: |
+          echo "Deploying version ${{ needs.set_version.outputs.version }} to ${{ github.event.inputs.environment }}"
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "Dry run: no deployment executed."
+          else
+            echo "Deployment complete."
